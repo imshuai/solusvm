@@ -213,6 +213,7 @@ func (vm *VirtualMachine) GetStatus() (vi *VirtualMachineInformation, err error)
 		return nil, errors.New(vmi.StatusMSG)
 	}
 	vi = new(VirtualMachineInformation)
+	vi.vm = vm
 	vi.Hostname = vmi.Hostname
 	vi.Status = vmi.VMStat
 	vi.MainIP = vmi.IPaddress
