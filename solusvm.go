@@ -1,23 +1,34 @@
 package solusvm
 
 import (
+	"encoding/json"
+	"encoding/xml"
+	"errors"
 	"io/ioutil"
 	"net/http"
-)
-
-import (
 	"net/url"
+	"strconv"
+	"strings"
 )
 
 type vminfo struct {
-	IPaddress string `xml:"ipaddress"`
-	IPaddr    string `xml:"ipaddr"`
-	HDD       string `xml:"hdd"`
-	MEM       string `xml:"mem"`
-	BW        string `xml:"bw"`
-	VMStat    string `xml:"stat"`
-	Status    string `xml:"status"`
-	StatusMSG string `xml:"statusmsg"`
+	Hostname  string `xml:"hostname,omitempty"`
+	IPaddress string `xml:"ipaddress,omitempty"`
+	IPaddr    string `xml:"ipaddr,omitempty"`
+	HDD       string `xml:"hdd,omitempty"`
+	MEM       string `xml:"mem,omitempty"`
+	BW        string `xml:"bw,omitempty"`
+	VMStat    string `xml:"stat,omitempty"`
+	Status    string `xml:"status,omitempty"`
+	StatusMSG string `xml:"statusmsg,omitempty"`
+}
+
+func (vi *vminfo) unMarshal(msg []byte) error {
+	err := xml.Unmarshal(msg, vi)
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
 type limitation struct {
@@ -27,15 +38,9 @@ type limitation struct {
 	PercentUsed string `json:"percent_used"`
 }
 
-//VirtualMachine comment to write here
-type VirtualMachine struct {
-	key  string
-	hash string
-	host string
-}
-
-//VirtualMachineInformation comment to write here
+//VirtualMachineInformation define virtual machine's information
 type VirtualMachineInformation struct {
+	vm        *VirtualMachine
 	Hostname  string     `json:"hostname"`
 	MainIP    string     `json:"main_ip"`
 	IPAddress []string   `json:"ipaddress"`
@@ -45,20 +50,139 @@ type VirtualMachineInformation struct {
 	Status    string     `json:"status"`
 }
 
-func NewVM(host,key,hash string)*VirtualMachine{
-	return &VirtualMachine{
-		host:host,
-		key:key,
-		hash:hash,
-	}
-}
-
-func (vm *VirtualMachine)Boot()error{
-	msg,err:=do(vm.host,"boot",vm.key,vm.hash)
-	if err!=nil{
+//Update virtual machine's information from solusvm api
+func (vi *VirtualMachineInformation) Update() (err error) {
+	vi, err = vi.vm.GetStatus()
+	if err != nil {
 		return err
 	}
 	return nil
+}
+
+//Marshal encode struct to json string
+func (vi *VirtualMachineInformation) Marshal() (jsonString string, err error) {
+	var byts []byte
+	byts, err = json.Marshal(vi)
+	if err != nil {
+		return "", err
+	}
+	return string(byts), nil
+}
+
+//VirtualMachine define virtual machine
+type VirtualMachine struct {
+	key  string
+	hash string
+	host string
+}
+
+//NewVM create a virtual machine object's pointer
+func NewVM(host, key, hash string) *VirtualMachine {
+	return &VirtualMachine{
+		host: host,
+		key:  key,
+		hash: hash,
+	}
+}
+
+//Boot virtual machine
+func (vm *VirtualMachine) Boot() error {
+	msg, err := do(vm.host, "boot", vm.key, vm.hash)
+	if err != nil {
+		return err
+	}
+	vmi := &vminfo{}
+	err = vmi.unMarshal(msg)
+	if err != nil {
+		return err
+	}
+	if vmi.Status != "success" {
+		return errors.New(vmi.StatusMSG)
+	}
+	return nil
+}
+
+//Reboot virtual machine
+func (vm *VirtualMachine) Reboot() error {
+	msg, err := do(vm.host, "reboot", vm.key, vm.hash)
+	if err != nil {
+		return err
+	}
+	vmi := &vminfo{}
+	err = vmi.unMarshal(msg)
+	if err != nil {
+		return err
+	}
+	if vmi.Status != "success" {
+		return errors.New(vmi.StatusMSG)
+	}
+	return nil
+}
+
+//Shutdown virtual machine
+func (vm *VirtualMachine) Shutdown() error {
+	msg, err := do(vm.host, "shutdown", vm.key, vm.hash)
+	if err != nil {
+		return err
+	}
+	vmi := &vminfo{}
+	err = vmi.unMarshal(msg)
+	if err != nil {
+		return err
+	}
+	if vmi.Status != "success" {
+		return errors.New(vmi.StatusMSG)
+	}
+	return nil
+}
+
+//GetStatus Get virtual machine's information from solusvm api
+func (vm *VirtualMachine) GetStatus() (vi *VirtualMachineInformation, err error) {
+	var msg []byte
+	msg, err = do(vm.host, "info", vm.key, vm.hash, "status", "hdd", "bw", "mem", "ipaddr")
+	if err != nil {
+		return nil, err
+	}
+	vmi := &vminfo{}
+	err = vmi.unMarshal(msg)
+	if err != nil {
+		return nil, err
+	}
+	if vmi.Status != "success" {
+		return nil, errors.New(vmi.StatusMSG)
+	}
+	vi.Hostname = vmi.Hostname
+	vi.Status = vmi.VMStat
+	vi.MainIP = vmi.IPaddress
+	vi.BW = func() limitation {
+		lm := limitation{}
+		t := strings.Split(vmi.BW, ",")
+		lm.Total, _ = strconv.Atoi(t[0])
+		lm.Used, _ = strconv.Atoi(t[1])
+		lm.Free, _ = strconv.Atoi(t[2])
+		lm.PercentUsed = t[3]
+		return lm
+	}()
+	vi.HDD = func() limitation {
+		lm := limitation{}
+		t := strings.Split(vmi.HDD, ",")
+		lm.Total, _ = strconv.Atoi(t[0])
+		lm.Used, _ = strconv.Atoi(t[1])
+		lm.Free, _ = strconv.Atoi(t[2])
+		lm.PercentUsed = t[3]
+		return lm
+	}()
+	vi.MEM = func() limitation {
+		lm := limitation{}
+		t := strings.Split(vmi.MEM, ",")
+		lm.Total, _ = strconv.Atoi(t[0])
+		lm.Used, _ = strconv.Atoi(t[1])
+		lm.Free, _ = strconv.Atoi(t[2])
+		lm.PercentUsed = t[3]
+		return lm
+	}()
+	vi.IPAddress = strings.Split(vmi.HDD, ",")
+	return vi, nil
 }
 
 func do(u string, action string, flags ...string) ([]byte, error) {
