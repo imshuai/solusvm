@@ -4,7 +4,9 @@ import (
 	"encoding/json"
 	"encoding/xml"
 	"errors"
+	"fmt"
 	"io/ioutil"
+	"math"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -18,7 +20,7 @@ type vminfo struct {
 	HDD       string `xml:"hdd,omitempty"`
 	MEM       string `xml:"mem,omitempty"`
 	BW        string `xml:"bw,omitempty"`
-	VMStat    string `xml:"stat,omitempty"`
+	VMStat    string `xml:"vmstat,omitempty"`
 	Status    string `xml:"status,omitempty"`
 	StatusMSG string `xml:"statusmsg,omitempty"`
 }
@@ -31,12 +33,24 @@ func (vi *vminfo) unMarshal(msg []byte) error {
 	return nil
 }
 
+type conversionInt int64
+
+func (c conversionInt) MarshalText() ([]byte, error) {
+	return []byte(unitConversion(int64(c))), nil
+}
+
 //HardwareInformation define virtual machine's hardware information
 type HardwareInformation struct {
-	Total       int    `json:"total"`
-	Used        int    `json:"used"`
-	Free        int    `json:"free"`
+	Total       int64  `json:"total"`
+	Used        int64  `json:"used"`
+	Free        int64  `json:"free"`
 	PercentUsed string `json:"percent_used"`
+}
+type hardwareInformationConversion struct {
+	Total       conversionInt `json:"total"`
+	Used        conversionInt `json:"used"`
+	Free        conversionInt `json:"free"`
+	PercentUsed string        `json:"percent_used"`
 }
 
 //VirtualMachineInformation define virtual machine's information
@@ -70,6 +84,47 @@ func (vi *VirtualMachineInformation) Marshal() (jsonString string, err error) {
 	return string(byts), nil
 }
 
+//ConversionMarshal encode struct to json string with unit conversion
+func (vi *VirtualMachineInformation) ConversionMarshal() (jsonString string, err error) {
+	viConversion := &struct {
+		Hostname  string                        `json:"hostname"`
+		MainIP    string                        `json:"main_ip"`
+		IPAddress []string                      `json:"ipaddress"`
+		HDD       hardwareInformationConversion `json:"hdd"`
+		BW        hardwareInformationConversion `json:"bandwith"`
+		MEM       hardwareInformationConversion `json:"memory"`
+		Status    string                        `json:"status"`
+	}{
+		Hostname:  vi.Hostname,
+		MainIP:    vi.MainIP,
+		IPAddress: vi.IPAddress,
+		HDD: hardwareInformationConversion{
+			Total:       conversionInt(vi.HDD.Total),
+			Used:        conversionInt(vi.HDD.Used),
+			Free:        conversionInt(vi.HDD.Free),
+			PercentUsed: vi.HDD.PercentUsed,
+		},
+		BW: hardwareInformationConversion{
+			Total:       conversionInt(vi.BW.Total),
+			Used:        conversionInt(vi.BW.Used),
+			Free:        conversionInt(vi.BW.Free),
+			PercentUsed: vi.BW.PercentUsed,
+		},
+		MEM: hardwareInformationConversion{
+			Total:       conversionInt(vi.MEM.Total),
+			Used:        conversionInt(vi.MEM.Used),
+			Free:        conversionInt(vi.MEM.Free),
+			PercentUsed: vi.MEM.PercentUsed,
+		},
+		Status: vi.Status,
+	}
+	byts, err := json.Marshal(viConversion)
+	if err != nil {
+		return "", err
+	}
+	return string(byts), nil
+}
+
 //VirtualMachine define virtual machine
 type VirtualMachine struct {
 	key  string
@@ -88,7 +143,7 @@ func NewVM(host, key, hash string) *VirtualMachine {
 
 //Boot virtual machine
 func (vm *VirtualMachine) Boot() error {
-	msg, err := do(vm.host, "boot", vm.key, vm.hash)
+	msg, err := do(vm, "boot")
 	if err != nil {
 		return err
 	}
@@ -105,7 +160,7 @@ func (vm *VirtualMachine) Boot() error {
 
 //Reboot virtual machine
 func (vm *VirtualMachine) Reboot() error {
-	msg, err := do(vm.host, "reboot", vm.key, vm.hash)
+	msg, err := do(vm, "reboot")
 	if err != nil {
 		return err
 	}
@@ -122,7 +177,7 @@ func (vm *VirtualMachine) Reboot() error {
 
 //Shutdown virtual machine
 func (vm *VirtualMachine) Shutdown() error {
-	msg, err := do(vm.host, "shutdown", vm.key, vm.hash)
+	msg, err := do(vm, "shutdown")
 	if err != nil {
 		return err
 	}
@@ -140,7 +195,7 @@ func (vm *VirtualMachine) Shutdown() error {
 //GetStatus Get virtual machine's information from solusvm api
 func (vm *VirtualMachine) GetStatus() (vi *VirtualMachineInformation, err error) {
 	var msg []byte
-	msg, err = do(vm.host, "info", vm.key, vm.hash, "status", "hdd", "bw", "mem", "ipaddr")
+	msg, err = do(vm, "info", "status", "hdd", "bw", "mem", "ipaddr")
 	if err != nil {
 		return nil, err
 	}
@@ -152,48 +207,50 @@ func (vm *VirtualMachine) GetStatus() (vi *VirtualMachineInformation, err error)
 	if vmi.Status != "success" {
 		return nil, errors.New(vmi.StatusMSG)
 	}
+	vi = new(VirtualMachineInformation)
 	vi.Hostname = vmi.Hostname
 	vi.Status = vmi.VMStat
 	vi.MainIP = vmi.IPaddress
 	vi.BW = func() HardwareInformation {
 		lm := HardwareInformation{}
 		t := strings.Split(vmi.BW, ",")
-		lm.Total, _ = strconv.Atoi(t[0])
-		lm.Used, _ = strconv.Atoi(t[1])
-		lm.Free, _ = strconv.Atoi(t[2])
+		lm.Total, _ = strconv.ParseInt(t[0], 10, 0)
+		lm.Used, _ = strconv.ParseInt(t[1], 10, 0)
+		lm.Free, _ = strconv.ParseInt(t[2], 10, 0)
 		lm.PercentUsed = t[3]
 		return lm
 	}()
 	vi.HDD = func() HardwareInformation {
 		lm := HardwareInformation{}
 		t := strings.Split(vmi.HDD, ",")
-		lm.Total, _ = strconv.Atoi(t[0])
-		lm.Used, _ = strconv.Atoi(t[1])
-		lm.Free, _ = strconv.Atoi(t[2])
+		lm.Total, _ = strconv.ParseInt(t[0], 10, 0)
+		lm.Used, _ = strconv.ParseInt(t[1], 10, 0)
+		lm.Free, _ = strconv.ParseInt(t[2], 10, 0)
 		lm.PercentUsed = t[3]
 		return lm
 	}()
 	vi.MEM = func() HardwareInformation {
 		lm := HardwareInformation{}
 		t := strings.Split(vmi.MEM, ",")
-		lm.Total, _ = strconv.Atoi(t[0])
-		lm.Used, _ = strconv.Atoi(t[1])
-		lm.Free, _ = strconv.Atoi(t[2])
+		lm.Total, _ = strconv.ParseInt(t[0], 10, 0)
+		lm.Used, _ = strconv.ParseInt(t[1], 10, 0)
+		lm.Free, _ = strconv.ParseInt(t[2], 10, 0)
 		lm.PercentUsed = t[3]
 		return lm
 	}()
-	vi.IPAddress = strings.Split(vmi.HDD, ",")
+	vi.IPAddress = strings.Split(vmi.IPaddr, ",")
 	return vi, nil
 }
 
-func do(u string, action string, flags ...string) ([]byte, error) {
+func do(vm *VirtualMachine, action string, flags ...string) ([]byte, error) {
 	val := url.Values{}
 	val.Add("action", action)
+	val.Add("key", vm.key)
+	val.Add("hash", vm.hash)
 	for _, v := range flags {
 		val.Add(v, "true")
 	}
-
-	resp, err := http.PostForm(u, val)
+	resp, err := http.PostForm(vm.host, val)
 	if err != nil {
 		return []byte{}, err
 	}
@@ -203,5 +260,30 @@ func do(u string, action string, flags ...string) ([]byte, error) {
 	if err != nil {
 		return []byte{}, err
 	}
-	return msg, nil
+	return []byte("<vminfo>" + string(msg) + "</vminfo>"), nil
+}
+
+func unitConversion(b int64) string {
+	if b == 0 {
+		return "0.0B"
+	}
+	var unit string
+	units := map[int]string{
+		0: "B",
+		1: "KB",
+		2: "MB",
+		3: "GB",
+		4: "TB",
+		5: "PB",
+		6: "EB",
+		7: "ZB",
+		8: "YB",
+	}
+	pow := int(math.Floor(math.Log(float64(b)) / math.Log(1024)))
+	if v, ok := units[pow]; ok {
+		unit = v
+	} else {
+		unit = "GB"
+	}
+	return fmt.Sprintf("%.2f"+unit, float64(b)/math.Pow(1024, float64(pow)))
 }
