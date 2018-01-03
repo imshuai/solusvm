@@ -1,6 +1,5 @@
 # solusvm
 SolusVM API Client by golang  
----
 # Usage  
 ```golang
 package main
