@@ -31,7 +31,8 @@ func (vi *vminfo) unMarshal(msg []byte) error {
 	return nil
 }
 
-type limitation struct {
+//HardwareInformation define virtual machine's hardware information
+type HardwareInformation struct {
 	Total       int    `json:"total"`
 	Used        int    `json:"used"`
 	Free        int    `json:"free"`
@@ -41,13 +42,13 @@ type limitation struct {
 //VirtualMachineInformation define virtual machine's information
 type VirtualMachineInformation struct {
 	vm        *VirtualMachine
-	Hostname  string     `json:"hostname"`
-	MainIP    string     `json:"main_ip"`
-	IPAddress []string   `json:"ipaddress"`
-	HDD       limitation `json:"hdd"`
-	BW        limitation `json:"bandwith"`
-	MEM       limitation `json:"memory"`
-	Status    string     `json:"status"`
+	Hostname  string              `json:"hostname"`
+	MainIP    string              `json:"main_ip"`
+	IPAddress []string            `json:"ipaddress"`
+	HDD       HardwareInformation `json:"hdd"`
+	BW        HardwareInformation `json:"bandwith"`
+	MEM       HardwareInformation `json:"memory"`
+	Status    string              `json:"status"`
 }
 
 //Update virtual machine's information from solusvm api
@@ -79,7 +80,7 @@ type VirtualMachine struct {
 //NewVM create a virtual machine object's pointer
 func NewVM(host, key, hash string) *VirtualMachine {
 	return &VirtualMachine{
-		host: host,
+		host: host + "/api/client/command.php",
 		key:  key,
 		hash: hash,
 	}
@@ -154,8 +155,8 @@ func (vm *VirtualMachine) GetStatus() (vi *VirtualMachineInformation, err error)
 	vi.Hostname = vmi.Hostname
 	vi.Status = vmi.VMStat
 	vi.MainIP = vmi.IPaddress
-	vi.BW = func() limitation {
-		lm := limitation{}
+	vi.BW = func() HardwareInformation {
+		lm := HardwareInformation{}
 		t := strings.Split(vmi.BW, ",")
 		lm.Total, _ = strconv.Atoi(t[0])
 		lm.Used, _ = strconv.Atoi(t[1])
@@ -163,8 +164,8 @@ func (vm *VirtualMachine) GetStatus() (vi *VirtualMachineInformation, err error)
 		lm.PercentUsed = t[3]
 		return lm
 	}()
-	vi.HDD = func() limitation {
-		lm := limitation{}
+	vi.HDD = func() HardwareInformation {
+		lm := HardwareInformation{}
 		t := strings.Split(vmi.HDD, ",")
 		lm.Total, _ = strconv.Atoi(t[0])
 		lm.Used, _ = strconv.Atoi(t[1])
@@ -172,8 +173,8 @@ func (vm *VirtualMachine) GetStatus() (vi *VirtualMachineInformation, err error)
 		lm.PercentUsed = t[3]
 		return lm
 	}()
-	vi.MEM = func() limitation {
-		lm := limitation{}
+	vi.MEM = func() HardwareInformation {
+		lm := HardwareInformation{}
 		t := strings.Split(vmi.MEM, ",")
 		lm.Total, _ = strconv.Atoi(t[0])
 		lm.Used, _ = strconv.Atoi(t[1])
