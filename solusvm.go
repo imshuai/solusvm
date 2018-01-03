@@ -41,10 +41,10 @@ func (c conversionInt) MarshalText() ([]byte, error) {
 
 //HardwareInformation define virtual machine's hardware information
 type HardwareInformation struct {
-	Total       int64  `json:"total"`
-	Used        int64  `json:"used"`
-	Free        int64  `json:"free"`
-	PercentUsed string `json:"percent_used"`
+	Total       int64 `json:"total"`
+	Used        int64 `json:"used"`
+	Free        int64 `json:"free"`
+	PercentUsed int64 `json:"percent_used"`
 }
 type hardwareInformationConversion struct {
 	Total       conversionInt `json:"total"`
@@ -84,8 +84,8 @@ func (vi *VirtualMachineInformation) Marshal() (jsonString string, err error) {
 	return string(byts), nil
 }
 
-//ConversionMarshal encode struct to json string with unit conversion
-func (vi *VirtualMachineInformation) ConversionMarshal() (jsonString string, err error) {
+//ConversionMarshalIndent is like ConversionMarshal but applies Indent to format the output.
+func (vi *VirtualMachineInformation) ConversionMarshalIndent(prefix, indent string) (jsonString string, err error) {
 	viConversion := &struct {
 		Hostname  string                        `json:"hostname"`
 		MainIP    string                        `json:"main_ip"`
@@ -102,27 +102,32 @@ func (vi *VirtualMachineInformation) ConversionMarshal() (jsonString string, err
 			Total:       conversionInt(vi.HDD.Total),
 			Used:        conversionInt(vi.HDD.Used),
 			Free:        conversionInt(vi.HDD.Free),
-			PercentUsed: vi.HDD.PercentUsed,
+			PercentUsed: strconv.FormatInt(vi.HDD.PercentUsed, 10) + "%",
 		},
 		BW: hardwareInformationConversion{
 			Total:       conversionInt(vi.BW.Total),
 			Used:        conversionInt(vi.BW.Used),
 			Free:        conversionInt(vi.BW.Free),
-			PercentUsed: vi.BW.PercentUsed,
+			PercentUsed: strconv.FormatInt(vi.BW.PercentUsed, 10) + "%",
 		},
 		MEM: hardwareInformationConversion{
 			Total:       conversionInt(vi.MEM.Total),
 			Used:        conversionInt(vi.MEM.Used),
 			Free:        conversionInt(vi.MEM.Free),
-			PercentUsed: vi.MEM.PercentUsed,
+			PercentUsed: strconv.FormatInt(vi.MEM.PercentUsed, 10) + "%",
 		},
 		Status: vi.Status,
 	}
-	byts, err := json.Marshal(viConversion)
+	byts, err := json.MarshalIndent(viConversion, prefix, indent)
 	if err != nil {
 		return "", err
 	}
 	return string(byts), nil
+}
+
+//ConversionMarshal encode struct to json string with unit conversion
+func (vi *VirtualMachineInformation) ConversionMarshal() (jsonString string, err error) {
+	return vi.ConversionMarshalIndent("", "")
 }
 
 //VirtualMachine define virtual machine
@@ -217,7 +222,7 @@ func (vm *VirtualMachine) GetStatus() (vi *VirtualMachineInformation, err error)
 		lm.Total, _ = strconv.ParseInt(t[0], 10, 0)
 		lm.Used, _ = strconv.ParseInt(t[1], 10, 0)
 		lm.Free, _ = strconv.ParseInt(t[2], 10, 0)
-		lm.PercentUsed = t[3]
+		lm.PercentUsed, _ = strconv.ParseInt(t[3], 10, 0)
 		return lm
 	}()
 	vi.HDD = func() HardwareInformation {
@@ -226,7 +231,7 @@ func (vm *VirtualMachine) GetStatus() (vi *VirtualMachineInformation, err error)
 		lm.Total, _ = strconv.ParseInt(t[0], 10, 0)
 		lm.Used, _ = strconv.ParseInt(t[1], 10, 0)
 		lm.Free, _ = strconv.ParseInt(t[2], 10, 0)
-		lm.PercentUsed = t[3]
+		lm.PercentUsed, _ = strconv.ParseInt(t[3], 10, 0)
 		return lm
 	}()
 	vi.MEM = func() HardwareInformation {
@@ -235,7 +240,7 @@ func (vm *VirtualMachine) GetStatus() (vi *VirtualMachineInformation, err error)
 		lm.Total, _ = strconv.ParseInt(t[0], 10, 0)
 		lm.Used, _ = strconv.ParseInt(t[1], 10, 0)
 		lm.Free, _ = strconv.ParseInt(t[2], 10, 0)
-		lm.PercentUsed = t[3]
+		lm.PercentUsed, _ = strconv.ParseInt(t[3], 10, 0)
 		return lm
 	}()
 	vi.IPAddress = strings.Split(vmi.IPaddr, ",")
